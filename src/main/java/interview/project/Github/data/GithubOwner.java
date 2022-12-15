@@ -1,11 +1,12 @@
 package interview.project.Github.data;
 
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 @Getter
 @Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class GithubOwner {
     private String login;
 }

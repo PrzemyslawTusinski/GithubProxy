@@ -28,7 +28,7 @@ public class GithubProxyController {
             return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).body("XML is not supported");
         }
 
-        var repositories = githubService.getReposFor(username);
+        var repositories = githubService.listRepositories(username);
 
         return ResponseEntity.ok(repositories);
     }

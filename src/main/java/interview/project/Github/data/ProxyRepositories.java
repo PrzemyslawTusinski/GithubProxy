@@ -7,13 +7,13 @@ import java.util.List;
 
 @Getter
 @Setter
-public class ProxyResponse {
+public class ProxyRepositories {
     private String repositoryName;
     private String ownerLogon;
 
     private List<ProxyBranch> branches;
 
-    public ProxyResponse(String repositoryName, String ownerLogon) {
+    public ProxyRepositories(String repositoryName, String ownerLogon) {
         this.repositoryName = repositoryName;
         this.ownerLogon = ownerLogon;
     }

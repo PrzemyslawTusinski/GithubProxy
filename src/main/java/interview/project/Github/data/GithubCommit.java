@@ -1,10 +1,12 @@
 package interview.project.Github.data;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 @Getter
 @Setter
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class GithubCommit {
     private String sha;
 }
