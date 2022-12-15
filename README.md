@@ -31,7 +31,8 @@ sudo docker run -p 8080:8080 interview.project.github
 [HOST]:[PORT]/swagger-ui/index.html
 </code>
 
-## By defualt github api allows very limitted requests number. To increase this limit use github personal access token. To configure go to <code> application.properites </code> and set 
+## Request limit
+By defualt github api allows very limitted requests number. To increase this limit use github personal access token. To configure go to <code> application.properites </code> and set 
 
 <code>
 use_personal_access_key=true
