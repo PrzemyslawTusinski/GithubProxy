@@ -1,7 +1,10 @@
 package interview.project.Github;
 
 import com.google.gson.Gson;
-import interview.project.Github.data.*;
+import interview.project.Github.data.GithubBranch;
+import interview.project.Github.data.GithubCommit;
+import interview.project.Github.data.GithubOwner;
+import interview.project.Github.data.GithubRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +16,6 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
@@ -54,14 +56,15 @@ public class GithubProxyIntegrationTest {
 
 	@BeforeEach
 	public void init() {
-		mockServer = mockServer.bindTo(restTemplate).ignoreExpectOrder(true).build();
+		mockServer = MockRestServiceServer.bindTo(restTemplate).ignoreExpectOrder(true).build();
 	}
 
 	@Test
 	public void testApi_GivenXmlHeader_ShouldReturnNotAcceptable() throws Exception {
 		this.mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user1")
 						.header("accept", "application/xml"))
-				.andExpect(status().is(HttpStatus.NOT_ACCEPTABLE.value()));
+				.andExpect(status().is(HttpStatus.NOT_ACCEPTABLE.value()))
+				.andExpect(content().json("{\"errorCode\":403,\"message\":\"XML is not supported\"}"));
 	}
 
 	@Test
@@ -73,7 +76,8 @@ public class GithubProxyIntegrationTest {
 
 		this.mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user2")
 						.header("accept", "application/json"))
-				.andExpect(status().is(HttpStatus.NOT_FOUND.value()));
+				.andExpect(status().is(HttpStatus.NOT_FOUND.value()))
+				.andExpect(content().json("{\"errorCode\":404,\"message\":\"User not found\"}"));
 	}
 
 	@Test
@@ -94,7 +98,7 @@ public class GithubProxyIntegrationTest {
 		mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user3")
 						.header("accept", "application/json"))
 				.andExpect(status().is(HttpStatus.OK.value()))
-				.andExpect(content().string("[{\"repositoryName\":\"repo2\",\"ownerLogon\":\"user3\",\"branches\":[{\"name\":\"branch1\",\"lastCommitSha\":\"sha1\"},{\"name\":\"branch2\",\"lastCommitSha\":\"sha2\"}]},{\"repositoryName\":\"repo4\",\"ownerLogon\":\"user3\",\"branches\":[{\"name\":\"branch1\",\"lastCommitSha\":\"sha1\"},{\"name\":\"branch2\",\"lastCommitSha\":\"sha2\"}]}]"));
+				.andExpect(content().json("[{\"repositoryName\":\"repo2\",\"ownerLogon\":\"user3\",\"branches\":[{\"name\":\"branch1\",\"lastCommitSha\":\"sha1\"},{\"name\":\"branch2\",\"lastCommitSha\":\"sha2\"}]},{\"repositoryName\":\"repo4\",\"ownerLogon\":\"user3\",\"branches\":[{\"name\":\"branch1\",\"lastCommitSha\":\"sha1\"},{\"name\":\"branch2\",\"lastCommitSha\":\"sha2\"}]}]"));
 		//this could be done better...
 	}
 

@@ -30,7 +30,8 @@ public class GithubProxyControllerUnitTest {
 		ResponseEntity<?> response = controller.listRepositories(USER_1, XML_HEADER);
 
 		assertEquals(HttpStatus.NOT_ACCEPTABLE, response.getStatusCode());
-		assertEquals("XML is not supported", response.getBody());
+		assertEquals("{\"errorCode\":403,\"message\":\"XML is not supported\"}", response.getBody());
+		// TODO make this better
 	}
 
 	@Test

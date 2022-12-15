@@ -1,6 +1,8 @@
 package interview.project.Github;
 
 
+import com.google.gson.Gson;
+import interview.project.Github.data.ProxyErrorResult;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import org.springframework.http.HttpHeaders;
@@ -25,7 +27,10 @@ public class GithubProxyController {
     @GetMapping(path = "/repositories/{username}")
     public ResponseEntity<?> listRepositories(@PathVariable String username, @RequestHeader(HttpHeaders.ACCEPT) String acceptHeader) {
         if (acceptHeader.equals("application/xml")) {
-            return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).body("XML is not supported");
+            Gson gson = new Gson();
+            return ResponseEntity
+                    .status(HttpStatus.NOT_ACCEPTABLE)
+                    .body(gson.toJson(new ProxyErrorResult(HttpStatus.FORBIDDEN.value(), "XML is not supported")));
         }
 
         var repositories = githubService.listRepositories(username);
@@ -37,13 +42,14 @@ public class GithubProxyController {
     private ResponseEntity<?> handleGithubProxyUserNotFoundException(GithubProxyUserNotFoundException ex) {
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(ex.getMessage());
+                .body(new ProxyErrorResult(HttpStatus.NOT_FOUND.value(), ex.getMessage()));
     }
 
     @ExceptionHandler(GithubProxyLimitExceeded.class)
     private ResponseEntity<?> handleGithubProxyLimitExceeded(GithubProxyLimitExceeded ex) {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ex.getMessage());
+                .body(new ProxyErrorResult(HttpStatus.FORBIDDEN.value(), ex.getMessage()));
     }
+
 }
