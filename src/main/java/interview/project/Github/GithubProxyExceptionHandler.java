@@ -28,6 +28,6 @@ public class GithubProxyExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.NOT_ACCEPTABLE)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new ProxyErrorResult(HttpStatus.FORBIDDEN.value(), "XML is not supported"));
+                .body(new ProxyErrorResult(HttpStatus.NOT_ACCEPTABLE.value(), "XML is not supported"));
     }
 }

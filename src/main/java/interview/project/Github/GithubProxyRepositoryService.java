@@ -18,18 +18,25 @@ import java.util.Objects;
 @Service
 @AllArgsConstructor
 public class GithubProxyRepositoryService {
-    private RestTemplate restTemplate;
+    private final RestTemplate restTemplate;
 
-    private GithubProxyBranchService githubProxyBranchService;
+    private final GithubProxyBranchService githubProxyBranchService;
 
-    private HttpEntity<String> authorizationTokenHttpEntity;
+    private final HttpEntity<String> authorizationTokenHttpEntity;
 
     public List<ProxyRepositories> listRepositories(String username) throws GithubProxyUserNotFoundException {
         final String url = String.format("https://api.github.com/users/%s/repos", username);
 
-        GithubRepository[] repositories;
         try {
-            repositories = restTemplate.exchange(url, HttpMethod.GET, authorizationTokenHttpEntity, GithubRepository[].class).getBody();
+            GithubRepository[] repositories = restTemplate.exchange(url, HttpMethod.GET, authorizationTokenHttpEntity, GithubRepository[].class).getBody();
+
+            return Arrays.stream(Objects.requireNonNull(repositories)).parallel()
+                    .filter(repository -> !repository.isFork())
+                    .map(repository -> new ProxyRepositories(
+                            repository.getName(),
+                            repository.getOwner().getLogin(),
+                            githubProxyBranchService.listBranchesForRepository(username, repository.getName())))
+                    .toList();
         } catch (HttpClientErrorException ex) {
             if (ex.getStatusCode() == HttpStatus.NOT_FOUND)
                 throw new GithubProxyUserNotFoundException();
@@ -37,13 +44,5 @@ public class GithubProxyRepositoryService {
                 throw new GithubProxyLimitExceeded();
             throw ex;
         }
-
-        return Arrays.stream(Objects.requireNonNull(repositories)).parallel()
-                .filter(repository -> !repository.isFork())
-                .map(repository -> new ProxyRepositories(
-                        repository.getName(),
-                        repository.getOwner().getLogin(),
-                        githubProxyBranchService.listBranchesForRepository(username, repository.getName())))
-                .toList();
     }
 }

@@ -18,24 +18,23 @@ import java.util.stream.Collectors;
 @Service
 @AllArgsConstructor
 public class GithubProxyBranchService {
-    private RestTemplate restTemplate;
+    private final RestTemplate restTemplate;
 
-    private HttpEntity<String> authorizationTokenHttpEntity;
+    private final HttpEntity<String> authorizationTokenHttpEntity;
 
     public List<ProxyBranch> listBranchesForRepository(String username, String repositoryName) {
         final String url = String.format("https://api.github.com/repos/%s/%s/branches", username, repositoryName);
 
-        GithubBranch[] branches;
         try {
-            branches = restTemplate.exchange(url, HttpMethod.GET, authorizationTokenHttpEntity, GithubBranch[].class).getBody();
+            GithubBranch[] branches = restTemplate.exchange(url, HttpMethod.GET, authorizationTokenHttpEntity, GithubBranch[].class).getBody();
+
+            return Arrays.stream(Objects.requireNonNull(branches))
+                    .map(externalBranch -> new ProxyBranch(externalBranch.getName(), externalBranch.getCommit().getSha()))
+                    .collect(Collectors.toList());
         } catch (HttpClientErrorException ex) {
             if (ex.getStatusCode() == HttpStatus.FORBIDDEN)
                 throw new GithubProxyLimitExceeded();
             throw ex;
         }
-
-        return Arrays.stream(Objects.requireNonNull(branches))
-                .map(externalBranch -> new ProxyBranch(externalBranch.getName(), externalBranch.getCommit().getSha()))
-                .collect(Collectors.toList());
     }
 }
