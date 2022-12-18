@@ -3,6 +3,7 @@ package interview.project.Github;
 
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
+import lombok.AllArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,12 +14,9 @@ import springfox.documentation.swagger2.annotations.EnableSwagger2;
 @Api(value = "Github Proxy Controller")
 @RestController
 @RequestMapping("/github_proxy/v1")
+@AllArgsConstructor
 public class GithubProxyController {
     private final GithubProxyRepositoryService githubService;
-
-    GithubProxyController(GithubProxyRepositoryService githubProxyRepositoryService) {
-        this.githubService = githubProxyRepositoryService;
-    }
 
     @ApiOperation(value = "List repositories for a given username")
     @GetMapping(path = "/repositories/{username}")
