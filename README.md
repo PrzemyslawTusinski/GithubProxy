@@ -13,7 +13,7 @@ mvn package
 java -jar target/Github-0.0.1-SNAPSHOT.jar
 </code>
 
-## To run as docker container use:
+## To build and run as docker container use:
 
 <code>
 sudo docker build -t interview.project.github .

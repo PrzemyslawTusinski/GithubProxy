@@ -42,7 +42,6 @@ public class GithubProxyIntegrationTest {
 
 	private MockRestServiceServer mockServer;
 
-	private final String USER1 = "user1";
 	private final String USER3 = "user3";
 	private final String REPO1 = "repo1";
 	private final String REPO2 = "repo2";
@@ -61,11 +60,16 @@ public class GithubProxyIntegrationTest {
 
 	@Test
 	public void testApi_GivenXmlHeader_ShouldReturnNotAcceptable() throws Exception {
-		this.mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user1")
-						.header("accept", "application/xml"))
-				.andExpect(status().is(HttpStatus.NOT_ACCEPTABLE.value()))
-				.andExpect(content().json("{\"errorCode\":403,\"message\":\"XML is not supported\"}"));
-	}
+        this.mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user1")
+                        .header("accept", "application/xml"))
+                .andExpect(status().is(HttpStatus.NOT_ACCEPTABLE.value()))
+                .andExpect(content().json("""
+                        	{
+                        	    errorCode: 406,
+                        	    message: "XML is not supported"
+                        	}
+                        """));
+    }
 
 	@Test
 	public void testApi_GivenNonExistingUser_ShouldReturnNotFound() throws Exception {
@@ -77,7 +81,30 @@ public class GithubProxyIntegrationTest {
 		this.mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user2")
 						.header("accept", "application/json"))
 				.andExpect(status().is(HttpStatus.NOT_FOUND.value()))
-				.andExpect(content().json("{\"errorCode\":404,\"message\":\"User not found\"}"));
+                .andExpect(content().json("""
+                        	{
+                        	    errorCode: 404,
+                        	    message: "User not found"
+                        	}
+                        """));
+	}
+
+	@Test
+	public void testApi_GivenLimitExceededOnGithub_ShouldReturnForbiddenStatus() throws Exception {
+		mockServer.expect(ExpectedCount.once(),
+						requestTo(new URI("https://api.github.com/users/user2/repos")))
+				.andExpect(method(HttpMethod.GET)).
+				andRespond((response) -> { throw new HttpClientErrorException(HttpStatus.FORBIDDEN);});
+
+		this.mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user2")
+						.header("accept", "application/json"))
+				.andExpect(status().is(HttpStatus.FORBIDDEN.value()))
+                .andExpect(content().json("""
+                        	{
+                        	    errorCode: 403,
+                        	    message: "Server exceeded limit request. Please try again soon or configure personal access token"
+                        	}
+                        """));
 	}
 
 	@Test
@@ -98,8 +125,38 @@ public class GithubProxyIntegrationTest {
 		mockMvc.perform(get("http://localhost:8080/github_proxy/v1/repositories/user3")
 						.header("accept", "application/json"))
 				.andExpect(status().is(HttpStatus.OK.value()))
-				.andExpect(content().json("[{\"repositoryName\":\"repo2\",\"ownerLogon\":\"user3\",\"branches\":[{\"name\":\"branch1\",\"lastCommitSha\":\"sha1\"},{\"name\":\"branch2\",\"lastCommitSha\":\"sha2\"}]},{\"repositoryName\":\"repo4\",\"ownerLogon\":\"user3\",\"branches\":[{\"name\":\"branch1\",\"lastCommitSha\":\"sha1\"},{\"name\":\"branch2\",\"lastCommitSha\":\"sha2\"}]}]"));
-		//this could be done better...
+				.andExpect(content().json("""
+                        [
+                           {
+                              "repositoryName":"repo2",
+                              "ownerLogon":"user3",
+                              "branches":[
+                                 {
+                                    "name":"branch1",
+                                    "lastCommitSha":"sha1"
+                                 },
+                                 {
+                                    "name":"branch2",
+                                    "lastCommitSha":"sha2"
+                                 }
+                              ]
+                           },
+                           {
+                              "repositoryName":"repo4",
+                              "ownerLogon":"user3",
+                              "branches":[
+                                 {
+                                    "name":"branch1",
+                                    "lastCommitSha":"sha1"
+                                 },
+                                 {
+                                    "name":"branch2",
+                                    "lastCommitSha":"sha2"
+                                 }
+                              ]
+                           }
+                        ]
+                        """));
 	}
 
 	public String getTwoMockedBranchesResponse() {
