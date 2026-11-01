@@ -7,6 +7,7 @@ import interview.project.github.exception.UpstreamErrorException;
 import interview.project.github.exception.UpstreamTimeoutException;
 import interview.project.github.exception.UserNotFoundException;
 import io.netty.channel.ConnectTimeoutException;
+import io.netty.handler.timeout.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.ParameterizedTypeReference;
@@ -16,18 +17,18 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -53,6 +54,7 @@ public class WebClientGithubClient implements GithubClient {
 
     private static final Pattern LINK = Pattern.compile("<([^>]+)>([^<]*)");
     private static final Pattern REL = Pattern.compile("rel\\s*=\\s*\"?([^\";,]+)\"?");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final WebClient webClient;
     private final URI baseUrl;
@@ -60,7 +62,7 @@ public class WebClientGithubClient implements GithubClient {
 
     public WebClientGithubClient(WebClient githubWebClient, GithubProperties properties) {
         this.webClient = githubWebClient;
-        this.baseUrl = properties.api().baseUrl();
+        this.baseUrl = properties.baseUrl();
         this.pageSize = properties.pageSize();
     }
 
@@ -86,12 +88,13 @@ public class WebClientGithubClient implements GithubClient {
     }
 
     /**
-     * @param notFoundError error to raise on HTTP 404, or {@code null} to treat 404 as an upstream error
+     * @param notFoundError error to raise when the first page answers HTTP 404, or {@code null} to treat 404 as an
+     *                      upstream error; a 404 on a later page is always an upstream error
      */
     private <T> Flux<T> fetchAllPages(URI firstPage, ParameterizedTypeReference<List<T>> type,
                                       Supplier<GithubApiException> notFoundError) {
         return fetchPage(firstPage, type, notFoundError)
-                .expand(page -> page.next() == null ? Mono.empty() : fetchPage(page.next(), type, notFoundError))
+                .expand(page -> page.next() == null ? Mono.empty() : fetchPage(page.next(), type, null))
                 .concatMapIterable(Page::items);
     }
 
@@ -101,12 +104,13 @@ public class WebClientGithubClient implements GithubClient {
         return webClient.get()
                 .uri(uri)
                 .retrieve()
-                .onStatus(status -> !status.is2xxSuccessful(), response -> response.bodyToMono(String.class)
-                        .defaultIfEmpty("")
-                        .map(body -> toApiException(uri, response.statusCode(), response.headers().asHttpHeaders(),
-                                body, notFoundError)))
+                // The app disables redirect following (spring.http.reactiveclient.redirects), so this guard applies
+                // in production too: a redirect is reported as an upstream error instead of being followed.
+                .onStatus(HttpStatusCode::is3xxRedirection, ClientResponse::createException)
                 .toEntity(type)
                 .map(entity -> toPage(uri, entity))
+                .onErrorMap(WebClientResponseException.class, ex -> toApiException(uri, ex.getStatusCode(),
+                        ex.getHeaders(), ex.getResponseBodyAsString(), notFoundError))
                 .onErrorMap(error -> !(error instanceof GithubApiException), error -> toApiException(uri, error));
     }
 
@@ -117,8 +121,7 @@ public class WebClientGithubClient implements GithubClient {
             throw new UpstreamErrorException("GitHub API returned an empty response");
         }
         URI next = nextPageLink(entity.getHeaders().getOrEmpty(HttpHeaders.LINK))
-                .map(uri::resolve)
-                .map(this::requireSameOriginAsBaseUrl)
+                .map(this::onBaseUrl)
                 .orElse(null);
         return new Page<>(items, next);
     }
@@ -147,9 +150,15 @@ public class WebClientGithubClient implements GithubClient {
         return new UpstreamErrorException("Could not get a valid response from the GitHub API", error);
     }
 
+    /**
+     * A 403 is a rate limit when the primary limit is used up ({@code X-RateLimit-Remaining: 0}) or when it carries
+     * {@code Retry-After}, which GitHub sends for secondary rate limits while requests still remain.
+     */
     private static boolean isRateLimited(HttpStatusCode status, HttpHeaders headers) {
         return status.isSameCodeAs(HttpStatus.TOO_MANY_REQUESTS)
-                || (status.isSameCodeAs(HttpStatus.FORBIDDEN) && "0".equals(headers.getFirst(RATE_LIMIT_REMAINING)));
+                || (status.isSameCodeAs(HttpStatus.FORBIDDEN)
+                        && ("0".equals(headers.getFirst(RATE_LIMIT_REMAINING))
+                                || headers.containsKey(HttpHeaders.RETRY_AFTER)));
     }
 
     /**
@@ -162,8 +171,8 @@ public class WebClientGithubClient implements GithubClient {
         }
         Long resetEpochSeconds = parseLong(headers.getFirst(RATE_LIMIT_RESET));
         if (resetEpochSeconds != null) {
-            Duration untilReset = Duration.between(Instant.now(), Instant.ofEpochSecond(resetEpochSeconds));
-            return untilReset.isNegative() ? Duration.ZERO : untilReset;
+            // Plain long arithmetic: Instant.ofEpochSecond would throw for an out-of-range header value.
+            return Duration.ofSeconds(Math.max(0, resetEpochSeconds - Instant.now().getEpochSecond()));
         }
         return null;
     }
@@ -179,12 +188,14 @@ public class WebClientGithubClient implements GithubClient {
         }
     }
 
+    /**
+     * Netty's read timeout, a connect timeout, or a {@link java.util.concurrent.TimeoutException} such as Reactor
+     * Netty's connection pool acquire timeout.
+     */
     private static boolean isTimeout(Throwable error) {
         for (Throwable cause = error; cause != null; cause = cause.getCause()) {
-            if (cause instanceof TimeoutException
-                    || cause instanceof io.netty.handler.timeout.TimeoutException
-                    || cause instanceof ConnectTimeoutException
-                    || cause instanceof SocketTimeoutException) {
+            if (cause instanceof TimeoutException || cause instanceof ConnectTimeoutException
+                    || cause instanceof java.util.concurrent.TimeoutException) {
                 return true;
             }
         }
@@ -192,24 +203,15 @@ public class WebClientGithubClient implements GithubClient {
     }
 
     /**
-     * The token is attached to every request, so pagination links are only followed to the configured GitHub host.
+     * The token is sent with every request, so only the path and query of a pagination link are used and the request
+     * always goes to the configured GitHub host.
      */
-    private URI requireSameOriginAsBaseUrl(URI link) {
-        boolean sameOrigin = baseUrl.getScheme().equalsIgnoreCase(link.getScheme())
-                && baseUrl.getHost().equalsIgnoreCase(link.getHost())
-                && effectivePort(baseUrl) == effectivePort(link);
-        if (!sameOrigin) {
-            log.warn("GitHub API returned a pagination link to an unexpected host: {}", link);
-            throw new UpstreamErrorException("GitHub API returned a pagination link to an unexpected host");
-        }
-        return link;
-    }
-
-    private static int effectivePort(URI uri) {
-        if (uri.getPort() != -1) {
-            return uri.getPort();
-        }
-        return "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+    private URI onBaseUrl(URI link) {
+        return UriComponentsBuilder.fromUri(baseUrl)
+                .replacePath(link.getRawPath())
+                .replaceQuery(link.getRawQuery())
+                .build(true)
+                .toUri();
     }
 
     /**
@@ -220,7 +222,7 @@ public class WebClientGithubClient implements GithubClient {
             Matcher link = LINK.matcher(header);
             while (link.find()) {
                 Matcher rel = REL.matcher(link.group(2));
-                if (rel.find() && List.of(rel.group(1).trim().split("\\s+")).contains("next")) {
+                if (rel.find() && List.of(WHITESPACE.split(rel.group(1).trim())).contains("next")) {
                     return Optional.of(URI.create(link.group(1).trim()));
                 }
             }

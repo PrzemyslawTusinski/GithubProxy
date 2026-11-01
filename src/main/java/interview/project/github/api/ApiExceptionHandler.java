@@ -4,7 +4,6 @@ import interview.project.github.exception.RateLimitExceededException;
 import interview.project.github.exception.UpstreamErrorException;
 import interview.project.github.exception.UpstreamTimeoutException;
 import interview.project.github.exception.UserNotFoundException;
-import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.MessageSourceResolvable;
@@ -12,23 +11,23 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.ErrorResponse;
-import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.lang.Nullable;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
-import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.time.Duration;
 import java.util.stream.Collectors;
 
 /**
- * Maps every error to the body required by the specification: {@code {"status": <code>, "Message": "<reason>"}}.
  * The content type is always set explicitly, so the body is written even when the client accepts only XML.
  */
 @RestControllerAdvice
-public class ApiExceptionHandler {
+public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
@@ -55,36 +54,32 @@ public class ApiExceptionHandler {
         return error(HttpStatus.GATEWAY_TIMEOUT, ex.getMessage());
     }
 
-    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
-    public ResponseEntity<ApiError> handleNotAcceptable(HttpMediaTypeNotAcceptableException ex) {
-        return error(HttpStatus.NOT_ACCEPTABLE,
-                "Requested media type is not supported, this endpoint produces only application/json");
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
+        log.error("Unexpected error", ex);
+        return error(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
     }
 
-    @ExceptionHandler(HandlerMethodValidationException.class)
-    public ResponseEntity<ApiError> handleValidation(HandlerMethodValidationException ex) {
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         String message = ex.getAllErrors().stream()
                 .map(MessageSourceResolvable::getDefaultMessage)
                 .distinct()
                 .collect(Collectors.joining("; "));
-        return error(HttpStatus.BAD_REQUEST, message);
+        return createResponseEntity(ProblemDetail.forStatusAndDetail(status, message), headers, status, request);
     }
 
-    @ExceptionHandler(NoResourceFoundException.class)
-    public ResponseEntity<ApiError> handleNoResourceFound(NoResourceFoundException ex, HttpServletRequest request) {
-        return error(HttpStatus.NOT_FOUND, "No endpoint " + request.getMethod() + " " + request.getRequestURI());
-    }
-
-    @ExceptionHandler(Exception.class)
-    public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
-        if (ex instanceof ErrorResponse errorResponse) {
-            // Other Spring MVC exceptions (e.g. 405 Method Not Allowed) keep their status and headers.
-            HttpStatusCode status = errorResponse.getStatusCode();
-            String detail = errorResponse.getBody().getDetail();
-            return error(status, detail != null ? detail : ex.getMessage(), errorResponse.getHeaders());
-        }
-        log.error("Unexpected error", ex);
-        return error(HttpStatus.INTERNAL_SERVER_ERROR, "Internal server error");
+    @Override
+    protected ResponseEntity<Object> createResponseEntity(@Nullable Object body, HttpHeaders headers,
+            HttpStatusCode statusCode, WebRequest request) {
+        String detail = body instanceof ProblemDetail problemDetail && problemDetail.getDetail() != null
+                ? problemDetail.getDetail()
+                : reasonPhrase(statusCode);
+        return ResponseEntity.status(statusCode)
+                .headers(headers)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(new ApiError(statusCode.value(), detail));
     }
 
     private static ResponseEntity<ApiError> error(HttpStatusCode status, String message) {
@@ -96,6 +91,11 @@ public class ApiExceptionHandler {
                 .headers(headers)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(new ApiError(status.value(), message));
+    }
+
+    private static String reasonPhrase(HttpStatusCode statusCode) {
+        HttpStatus status = HttpStatus.resolve(statusCode.value());
+        return status != null ? status.getReasonPhrase() : String.valueOf(statusCode.value());
     }
 
     private static long roundUpToSeconds(Duration duration) {

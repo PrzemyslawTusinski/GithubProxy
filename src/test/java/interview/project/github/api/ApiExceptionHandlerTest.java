@@ -7,7 +7,9 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.context.request.ServletWebRequest;
 
 import java.time.Duration;
 import java.util.List;
@@ -29,15 +31,16 @@ class ApiExceptionHandlerTest {
     }
 
     @Test
-    void handleUnexpected_springMvcErrorResponse_keepsItsStatusAndHeaders() {
+    void handleException_methodNotSupported_returns405WithAllowHeaderAndErrorBody() throws Exception {
         var exception = new HttpRequestMethodNotSupportedException("POST", List.of("GET"));
 
-        ResponseEntity<ApiError> response = handler.handleUnexpected(exception);
+        ResponseEntity<Object> response =
+                handler.handleException(exception, new ServletWebRequest(new MockHttpServletRequest()));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
         assertThat(response.getHeaders().getAllow()).isEqualTo(Set.of(HttpMethod.GET));
-        assertThat(response.getBody())
-                .isEqualTo(new ApiError(405, "Method 'POST' is not supported."));
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_JSON);
+        assertThat(response.getBody()).isEqualTo(new ApiError(405, "Method 'POST' is not supported."));
     }
 
     @Test

@@ -26,22 +26,25 @@ docker build -t github-proxy .
 docker run --rm -p 8080:8080 -e GITHUB_TOKEN=<your token> github-proxy
 ```
 
-The image build skips the tests (`-DskipTests`); they are meant to run in CI with `./mvnw verify`.
-The container runs as a non-root user and has a `HEALTHCHECK` on `/actuator/health`.
+The image is built with the same Maven wrapper, so the Maven version is pinned in one place
+(`.mvn/wrapper/maven-wrapper.properties`). The image build skips the tests (`-DskipTests`) to stay fast; run
+`./mvnw verify` before building an image. The container runs as a non-root user and has a `HEALTHCHECK` on
+`/actuator/health`.
 
 ## Configuration
 
 Every setting can be passed as an environment variable or as a Spring property
-(for example `java -jar target/github-proxy.jar --github.read-timeout=5s`).
+(for example `java -jar target/github-proxy.jar --spring.http.reactiveclient.read-timeout=5s`).
 
-| Property                 | Environment variable     | Default                  | Description                                                     |
-|--------------------------|--------------------------|--------------------------|-----------------------------------------------------------------|
-| `github.token`           | `GITHUB_TOKEN`           | empty                    | Personal access token, sent as `Authorization: Bearer <token>`  |
-| `github.api.base-url`    | `GITHUB_API_BASE_URL`    | `https://api.github.com` | GitHub API location                                             |
-| `github.connect-timeout` | `GITHUB_CONNECT_TIMEOUT` | `5s`                     | TCP connect timeout                                             |
-| `github.read-timeout`    | `GITHUB_READ_TIMEOUT`    | `10s`                    | Maximum wait for a GitHub response                              |
-| `github.page-size`       | `GITHUB_PAGE_SIZE`       | `100`                    | Items requested per page (`per_page`, 1-100)                    |
-| `github.max-concurrency` | `GITHUB_MAX_CONCURRENCY` | `10`                     | Maximum number of branch requests sent to GitHub at once        |
+| Property                                     | Environment variable                         | Default                  | Description                                                    |
+|----------------------------------------------|----------------------------------------------|--------------------------|----------------------------------------------------------------|
+| `github.base-url`                            | `GITHUB_BASE_URL`                            | `https://api.github.com` | GitHub API location                                            |
+| `github.token`                               | `GITHUB_TOKEN`                               | empty                    | Personal access token, sent as `Authorization: Bearer <token>` |
+| `github.page-size`                           | `GITHUB_PAGE_SIZE`                           | `100`                    | Items requested per page (`per_page`, 1-100)                   |
+| `github.max-concurrency`                     | `GITHUB_MAX_CONCURRENCY`                     | `10`                     | Maximum number of branch requests sent to GitHub at once       |
+| `github.request-timeout`                     | `GITHUB_REQUEST_TIMEOUT`                     | `30s`                    | Maximum time for a whole listing, all pages and branches       |
+| `spring.http.reactiveclient.connect-timeout` | `SPRING_HTTP_REACTIVECLIENT_CONNECT_TIMEOUT` | `5s`                     | TCP connect timeout of the GitHub client                       |
+| `spring.http.reactiveclient.read-timeout`    | `SPRING_HTTP_REACTIVECLIENT_READ_TIMEOUT`    | `10s`                    | Maximum wait for each GitHub response                          |
 
 Without a token GitHub allows 60 requests per hour per IP address, and this service makes one request per page of
 repositories plus one per page of branches of every non-fork repository. A token raises the limit considerably; see
@@ -85,9 +88,9 @@ All errors use the same body, with `Content-Type: application/json`:
 | 400    | `username` is not a valid GitHub login (1-39 letters, digits or single hyphens, no leading/trailing hyphen) |
 | 404    | The GitHub user does not exist, or the path does not match any endpoint                                 |
 | 406    | The `Accept` header does not allow `application/json` (for example `application/xml`)                   |
-| 502    | GitHub answered with an unexpected status (5xx, 401, a 403 that is not a rate limit, ...), an empty or invalid body, or could not be reached |
-| 503    | GitHub rate limit exceeded (HTTP 429, or 403 with `X-RateLimit-Remaining: 0`); `Retry-After` is set when GitHub tells when the limit resets |
-| 504    | GitHub did not respond within `github.read-timeout`                                                     |
+| 502    | GitHub answered with an unexpected status (5xx, 401, a 403 that is not a rate limit, a redirect, ...), an empty or invalid body, or could not be reached |
+| 503    | GitHub rate limit exceeded (HTTP 429, or 403 with `X-RateLimit-Remaining: 0` or with `Retry-After` as for secondary rate limits); `Retry-After` is set when GitHub tells when the limit resets |
+| 504    | A GitHub response did not arrive within `spring.http.reactiveclient.read-timeout`, or the whole listing took longer than `github.request-timeout` |
 | 500    | Unexpected error inside the proxy                                                                       |
 
 ### Documentation and health
@@ -103,13 +106,16 @@ All errors use the same body, with `Content-Type: application/json`:
   (`flatMapSequential`, at most `github.max-concurrency` at a time), and the results keep GitHub's repository order.
   The web layer stays on Spring MVC; the reactive pipeline is blocked on once, at the service boundary.
 - **Pagination.** Both GitHub endpoints return 30 items per page by default. The client asks for
-  `per_page=100` and follows the `Link: <...>; rel="next"` header until the last page. Links are only followed to
-  the configured GitHub host, because the token is sent with every request.
-- **Rate limits.** HTTP 429 and HTTP 403 with `X-RateLimit-Remaining: 0` are reported as `503 Service Unavailable`,
-  with `Retry-After` taken from GitHub's `Retry-After` or `X-RateLimit-Reset` header. Set `GITHUB_TOKEN` to get a
-  much higher limit.
-- **Timeouts.** The HTTP client has explicit connect and read timeouts, so a slow GitHub cannot hold request threads
-  indefinitely.
+  `per_page=100` and follows the `Link: <...>; rel="next"` header until the last page. Only the path and query of
+  a link are used, on the configured `github.base-url`, so the token is never sent to another host.
+- **Rate limits.** HTTP 429, HTTP 403 with `X-RateLimit-Remaining: 0` and HTTP 403 with `Retry-After` (GitHub's
+  secondary rate limit) are reported as `503 Service Unavailable`, with `Retry-After` taken from GitHub's
+  `Retry-After` or `X-RateLimit-Reset` header. Set `GITHUB_TOKEN` to get a much higher limit.
+- **Timeouts.** The HTTP client has explicit connect and read timeouts (`spring.http.reactiveclient.*`); the read
+  timeout bounds the wait for each GitHub response. `github.request-timeout` bounds the whole listing, all pages of
+  repositories and branches together, so a slow GitHub or a user with many repositories cannot hold a request
+  thread indefinitely.
+- **Fail fast.** If any branches call fails, the whole listing fails with that error; there are no partial results.
 
 ## Task
 

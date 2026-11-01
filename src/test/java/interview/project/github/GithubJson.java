@@ -9,11 +9,15 @@ public final class GithubJson {
     }
 
     public static String repository(String name, String owner, boolean fork) {
+        return repository(name, owner, fork, "Repository " + name);
+    }
+
+    public static String repository(String name, String owner, boolean fork, String description) {
         return """
                 {"id": 1296269, "name": "%1$s", "full_name": "%2$s/%1$s", "private": false, "fork": %3$s,
-                 "description": "Repository %1$s", "url": "https://api.github.com/repos/%2$s/%1$s",
+                 "description": "%4$s", "url": "https://api.github.com/repos/%2$s/%1$s",
                  "owner": {"login": "%2$s", "id": 1, "type": "User", "site_admin": false}}"""
-                .formatted(name, owner, fork);
+                .formatted(name, owner, fork, description);
     }
 
     public static String branch(String name, String sha) {

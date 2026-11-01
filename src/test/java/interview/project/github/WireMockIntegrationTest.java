@@ -18,7 +18,8 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMoc
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"github.token=", "github.read-timeout=1s"})
+@TestPropertySource(properties = {"github.token=", "github.request-timeout=5s",
+        "spring.http.reactiveclient.read-timeout=1s"})
 abstract class WireMockIntegrationTest {
 
     protected static final WireMockServer GITHUB =
@@ -33,7 +34,7 @@ abstract class WireMockIntegrationTest {
 
     @DynamicPropertySource
     static void githubApiProperties(DynamicPropertyRegistry registry) {
-        registry.add("github.api.base-url", WireMockIntegrationTest::githubBaseUrl);
+        registry.add("github.base-url", WireMockIntegrationTest::githubBaseUrl);
     }
 
     protected static String githubBaseUrl() {
