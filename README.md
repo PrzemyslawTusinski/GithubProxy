@@ -76,6 +76,8 @@ Requests Tomcat rejects before they reach Spring, such as a malformed URL, get T
 
 - Branches of different repositories are fetched in parallel on a non-blocking `WebClient`, at most 10 at a time.
   The response still keeps GitHub's repository order.
+- The web layer stays on plain Spring MVC: `WebClient` gives bounded parallel calls without a thread pool to
+  manage, and each request blocks its Tomcat thread once, waiting for the finished listing.
 - Both GitHub endpoints are paginated. The client follows the `Link: <...>; rel="next"` header, but only takes the
   link's path and query and sends them to `github.base-url`, so the token never goes to another host.
 - Fail fast: if any GitHub call fails, the whole request fails with that error. There are no partial results.

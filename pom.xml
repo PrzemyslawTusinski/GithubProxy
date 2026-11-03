@@ -9,7 +9,7 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>interview.project</groupId>
-	<artifactId>Github</artifactId>
+	<artifactId>github-proxy</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>GithubProxy</name>
 	<description>Proxy listing non-fork GitHub repositories of a user with their branches</description>

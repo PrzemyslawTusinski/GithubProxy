@@ -14,6 +14,7 @@ class ApiDocumentationIntegrationTest extends WireMockIntegrationTest {
     void apiDocs_requested_describesRepositoriesEndpointAndErrorFormat() throws Exception {
         mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.info.title").value("GitHub Proxy"))
                 .andExpect(jsonPath(RESPONSES + "['200'].content['application/json'].schema").exists())
                 .andExpect(jsonPath(RESPONSES + "['404'].content['application/json'].schema['$ref']")
                         .value("#/components/schemas/ApiError"))
