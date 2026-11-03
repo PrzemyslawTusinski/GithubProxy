@@ -82,6 +82,11 @@ Requests Tomcat rejects before they reach Spring, such as a malformed URL, get T
 - No cache and no retries, on purpose: every response shows GitHub's current data, and callers can retry a 502 or
   503 themselves.
 
+## Notes
+
+- The commit history from 2022 was not part of the task and is kept as it was.
+- The first commit contained a GitHub personal access token by mistake. It has been revoked.
+
 ## Task
 
 The original task statement, verbatim:
