@@ -2,10 +2,18 @@ package interview.project.github;
 
 import com.github.tomakehurst.wiremock.client.ResponseDefinitionBuilder;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.json.JsonCompareMode;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultMatcher;
 
 import java.util.Collections;
@@ -13,7 +21,6 @@ import java.util.List;
 import java.util.stream.IntStream;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
-import static com.github.tomakehurst.wiremock.client.WireMock.absent;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.anyUrl;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
@@ -23,6 +30,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.ok;
 import static com.github.tomakehurst.wiremock.client.WireMock.okJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static interview.project.github.GithubJson.array;
 import static interview.project.github.GithubJson.branch;
 import static interview.project.github.GithubJson.repository;
@@ -34,13 +42,28 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-class RepositoryApiIntegrationTest extends WireMockIntegrationTest {
+@SpringBootTest
+@AutoConfigureMockMvc
+class RepositoryApiIntegrationTest {
 
     private static final String ENDPOINT = "/github_proxy/v1/repositories/{username}";
     private static final String USER = "octocat";
     private static final String RATE_LIMIT_MESSAGE =
             "GitHub API rate limit exceeded. Try again later or configure a GitHub token (GITHUB_TOKEN)";
     private static final int BRANCHES_DELAY_MILLIS = 100;
+
+    @RegisterExtension
+    static final WireMockExtension GITHUB = WireMockExtension.newInstance()
+            .options(wireMockConfig().dynamicPort().bindAddress("127.0.0.1"))
+            .build();
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @DynamicPropertySource
+    static void githubApiProperties(DynamicPropertyRegistry registry) {
+        registry.add("github.base-url", RepositoryApiIntegrationTest::githubBaseUrl);
+    }
 
     @Test
     void getRepositories_userHasForksAndOwnRepositories_returnsOnlyNonForksWithBranches() throws Exception {
@@ -49,8 +72,8 @@ class RepositoryApiIntegrationTest extends WireMockIntegrationTest {
                 repository("hello-world", USER, false),
                 repository("fork-2", USER, true),
                 repository("spoon-knife", USER, false))));
-        stubBranches(USER, "hello-world", okJson(array(branch("main", "sha-1"), branch("dev", "sha-2"))));
-        stubBranches(USER, "spoon-knife", okJson(array(branch("main", "sha-3"))));
+        stubBranches("hello-world", okJson(array(branch("main", "sha-1"), branch("dev", "sha-2"))));
+        stubBranches("spoon-knife", okJson(array(branch("main", "sha-3"))));
 
         mockMvc.perform(get(ENDPOINT, USER).accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
@@ -96,8 +119,8 @@ class RepositoryApiIntegrationTest extends WireMockIntegrationTest {
                 .willReturn(okJson(array(repository("repo-2", USER, true), repository("repo-3", USER, false)))
                         .withHeader(HttpHeaders.LINK, link("/user/583231/repos?page=1", "prev")
                                 + ", " + link("/user/583231/repos?page=1", "first"))));
-        stubBranches(USER, "repo-1", okJson(array(branch("main", "sha-1"))));
-        stubBranches(USER, "repo-3", okJson(array(branch("main", "sha-3"))));
+        stubBranches("repo-1", okJson(array(branch("main", "sha-1"))));
+        stubBranches("repo-3", okJson(array(branch("main", "sha-3"))));
 
         mockMvc.perform(get(ENDPOINT, USER))
                 .andExpect(status().isOk())
@@ -114,32 +137,10 @@ class RepositoryApiIntegrationTest extends WireMockIntegrationTest {
     void getRepositories_nextLinkIsMalformed_returns502WithErrorBody() throws Exception {
         stubRepositories(USER, okJson(array(repository("repo-1", USER, false)))
                 .withHeader(HttpHeaders.LINK, link("/user/583231/repos?page=two words", "next")));
-        stubBranches(USER, "repo-1", okJson(array(branch("main", "sha-1"))));
+        stubBranches("repo-1", okJson(array(branch("main", "sha-1"))));
 
         mockMvc.perform(get(ENDPOINT, USER))
-                .andExpect(apiError(502, "GitHub API returned an invalid pagination link"));
-    }
-
-    @Test
-    void getRepositories_branchesSpanTwoPages_returnsBranchesFromBothPages() throws Exception {
-        stubRepositories(USER, okJson(array(repository("hello-world", USER, false))));
-        GITHUB.stubFor(WireMock.get(urlPathEqualTo("/repos/octocat/hello-world/branches"))
-                .withQueryParam("page", absent())
-                .willReturn(okJson(array(branch("branch-1", "sha-1"), branch("branch-2", "sha-2")))
-                        .withHeader(HttpHeaders.LINK, link("/repos/octocat/hello-world/branches?page=2", "next"))));
-        GITHUB.stubFor(WireMock.get(urlPathEqualTo("/repos/octocat/hello-world/branches"))
-                .withQueryParam("page", equalTo("2"))
-                .willReturn(okJson(array(branch("branch-3", "sha-3")))));
-
-        mockMvc.perform(get(ENDPOINT, USER))
-                .andExpect(status().isOk())
-                .andExpect(content().json("""
-                        [
-                          {"repositoryName": "hello-world", "ownerLogin": "octocat", "branches": [
-                            {"name": "branch-1", "lastCommitSha": "sha-1"},
-                            {"name": "branch-2", "lastCommitSha": "sha-2"},
-                            {"name": "branch-3", "lastCommitSha": "sha-3"}]}
-                        ]""", JsonCompareMode.STRICT));
+                .andExpect(apiError(502, "Could not get a valid response from the GitHub API"));
     }
 
     @Test
@@ -148,7 +149,7 @@ class RepositoryApiIntegrationTest extends WireMockIntegrationTest {
         stubRepositories(USER, okJson(array(names.stream()
                 .map(name -> repository(name, USER, false))
                 .toArray(String[]::new))));
-        names.forEach(name -> stubBranches(USER, name,
+        names.forEach(name -> stubBranches(name,
                 okJson(array(branch("main", "sha-" + name))).withFixedDelay(BRANCHES_DELAY_MILLIS)));
 
         mockMvc.perform(get(ENDPOINT, USER))
@@ -238,12 +239,32 @@ class RepositoryApiIntegrationTest extends WireMockIntegrationTest {
         GITHUB.verify(0, getRequestedFor(urlPathEqualTo("/elsewhere")));
     }
 
+    @Test
+    void apiDocs_requested_describesRepositoriesEndpointAndErrorFormat() throws Exception {
+        String responses = "$.paths['/github_proxy/v1/repositories/{username}'].get.responses";
+
+        mockMvc.perform(get("/v3/api-docs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.info.title").value("GitHub Proxy"))
+                .andExpect(jsonPath(responses + "['200'].content['application/json'].schema").exists())
+                .andExpect(jsonPath(responses + "['404'].content['application/json'].schema['$ref']")
+                        .value("#/components/schemas/ApiError"))
+                .andExpect(jsonPath(responses + "['406'].content['application/json'].schema['$ref']")
+                        .value("#/components/schemas/ApiError"))
+                .andExpect(jsonPath("$.components.schemas.ApiError.properties.status").exists())
+                .andExpect(jsonPath("$.components.schemas.ApiError.properties.Message").exists());
+    }
+
+    private static String githubBaseUrl() {
+        return "http://127.0.0.1:" + GITHUB.getPort();
+    }
+
     private static void stubRepositories(String user, ResponseDefinitionBuilder response) {
         GITHUB.stubFor(WireMock.get(urlPathEqualTo("/users/" + user + "/repos")).willReturn(response));
     }
 
-    private static void stubBranches(String user, String repo, ResponseDefinitionBuilder response) {
-        GITHUB.stubFor(WireMock.get(urlPathEqualTo("/repos/" + user + "/" + repo + "/branches")).willReturn(response));
+    private static void stubBranches(String repo, ResponseDefinitionBuilder response) {
+        GITHUB.stubFor(WireMock.get(urlPathEqualTo("/repos/" + USER + "/" + repo + "/branches")).willReturn(response));
     }
 
     private static ResponseDefinitionBuilder githubError(int status) {

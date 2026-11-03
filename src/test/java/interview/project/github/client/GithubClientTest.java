@@ -2,8 +2,6 @@ package interview.project.github.client;
 
 import com.github.tomakehurst.wiremock.junit5.WireMockExtension;
 import interview.project.github.GithubJson;
-import interview.project.github.config.GithubClientConfiguration;
-import interview.project.github.config.GithubProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.http.HttpHeaders;
@@ -21,7 +19,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 import static org.assertj.core.api.Assertions.assertThat;
 
-class WebClientGithubClientTest {
+class GithubClientTest {
 
     @RegisterExtension
     static final WireMockExtension GITHUB = WireMockExtension.newInstance()
@@ -63,9 +61,7 @@ class WebClientGithubClientTest {
         GITHUB.verify(1, getRequestedFor(urlEqualTo("/user/1/repos?page=2")));
     }
 
-    private static WebClientGithubClient client(String token) {
-        GithubProperties properties = new GithubProperties(URI.create(GITHUB.baseUrl()), token);
-        WebClient webClient = new GithubClientConfiguration().githubWebClient(WebClient.builder(), properties);
-        return new WebClientGithubClient(webClient, properties);
+    private static GithubClient client(String token) {
+        return new GithubClient(WebClient.builder(), new GithubProperties(URI.create(GITHUB.baseUrl()), token));
     }
 }

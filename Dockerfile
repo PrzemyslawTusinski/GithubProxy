@@ -9,7 +9,7 @@ COPY mvnw pom.xml ./
 RUN chmod +x mvnw && ./mvnw -B -ntp dependency:go-offline
 
 COPY src src
-RUN ./mvnw -B -ntp package -DskipTests
+RUN ./mvnw -B -ntp package -Dmaven.test.skip=true
 
 FROM eclipse-temurin:17-jre
 RUN groupadd --system app && useradd --system --gid app --no-create-home app

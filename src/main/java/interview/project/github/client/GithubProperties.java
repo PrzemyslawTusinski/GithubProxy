@@ -1,4 +1,4 @@
-package interview.project.github.config;
+package interview.project.github.client;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
