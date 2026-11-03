@@ -4,6 +4,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 
 @Configuration
@@ -15,7 +16,7 @@ public class GithubClientConfiguration {
     private static final String API_VERSION = "2022-11-28";
 
     /**
-     * The connector (timeouts, redirect handling, gzip) comes from Boot's auto-configuration and the
+     * The connector (timeouts, gzip) comes from Boot's auto-configuration and the
      * {@code spring.http.reactiveclient.*} properties; only the GitHub-specific headers are added here.
      */
     @Bean
@@ -25,7 +26,7 @@ public class GithubClientConfiguration {
                 .defaultHeader(API_VERSION_HEADER, API_VERSION)
                 .defaultHeader(HttpHeaders.USER_AGENT, "github-proxy")
                 .defaultHeaders(headers -> {
-                    if (properties.hasToken()) {
+                    if (StringUtils.hasText(properties.token())) {
                         headers.setBearerAuth(properties.token());
                     }
                 })

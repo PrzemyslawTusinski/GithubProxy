@@ -7,19 +7,14 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
 
-/**
- * Starts the whole application against a WireMock server standing in for api.github.com.
- * One WireMock instance is shared by all subclasses, so Spring can reuse the application context.
- */
-@SpringBootTest
+// One WireMock instance shared by all subclasses, so Spring can reuse the application context.
+// Netty would otherwise wait 2 s before shutting down when the cached context closes at JVM exit.
+@SpringBootTest(properties = "spring.reactor.netty.shutdown-quiet-period=0s")
 @AutoConfigureMockMvc
-@TestPropertySource(properties = {"github.token=", "github.request-timeout=5s",
-        "spring.http.reactiveclient.read-timeout=1s"})
 abstract class WireMockIntegrationTest {
 
     protected static final WireMockServer GITHUB =

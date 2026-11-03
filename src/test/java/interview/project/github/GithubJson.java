@@ -1,8 +1,6 @@
 package interview.project.github;
 
-/**
- * GitHub API response bodies for WireMock stubs. They carry extra fields like the real API does.
- */
+// Bodies carry extra fields like the real API, so the client must ignore unknown properties.
 public final class GithubJson {
 
     private GithubJson() {

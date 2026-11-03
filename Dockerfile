@@ -11,7 +11,6 @@ RUN chmod +x mvnw && ./mvnw -B -ntp dependency:go-offline
 COPY src src
 RUN ./mvnw -B -ntp package -DskipTests
 
-# Runtime stage: JRE only, running as a non-root user.
 FROM eclipse-temurin:17-jre
 RUN groupadd --system app && useradd --system --gid app --no-create-home app
 WORKDIR /app
@@ -19,6 +18,4 @@ COPY --from=build /workspace/target/github-proxy.jar /app/app.jar
 USER app
 
 EXPOSE 8080
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://localhost:8080/actuator/health || exit 1
 ENTRYPOINT ["java","-jar","/app/app.jar"]
